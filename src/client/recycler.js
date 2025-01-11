@@ -1,102 +1,104 @@
-###
- Federated Wiki : Recycler Plugin
- Licensed under the MIT license.
-###
+/*
+ * Federated Wiki : Recycler Plugin
+ * Licensed under the MIT license.
+ */
 
-queue = require 'async/queue'
+const escape = line => {
+  return line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
 
-
-escape = (line) ->
-  line
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-
-listItemHtml = (slug, title) ->
-  """
+const listItemHtml = (slug, title) => {
+  return `
     <li>
-      <a class="internal" href="#" title="recycler" data-page-name="#{slug}" data-site="recycler">#{escape title}</a>
+      <a class="internal" href="#" title="recycler" data-page-name="${slug}" data-site="recycler">${escape(title)}</a>
       <button class="delete">✕</button>
     </li>
-  """
+  `
+}
 
-emit = ($item, item) ->
-  recycledPages = []
-  wiki.recycler.get 'system/slugs.json', (error, data) ->
-    if error
-      $item.append """
+const emit = ($item, item) => {
+  wiki.recycler.get('system/slugs.json', (error, data) => {
+    if (error) {
+      $item.append(`
         <p style="background-color:#eee;padding:15px;">
           Unable to fetch contents of recycler
         </p>
-      """
-    else if data.length is 0
-      $item.append """
+      `)
+    } else if (data.length === 0) {
+      $item.append(`
         <p style="background-color:#eee;padding:15px;">
           The recycler is empty
         </p>
-      """
-    else
-      $item.append( ul = $('<ul>') )
-      for i in [0...data.length]
-        slug = data[i].slug
-        if data[i].title?
-          title = data[i].title
-        else
-          title = data[i].slug
-        ul.append listItemHtml(slug, title)
-      if data.length > 0
-        $item.append """
+      `)
+    } else {
+      const ul = $('<ul>')
+      $item.append(ul)
+      for (let i = 0; i < data.length; i++) {
+        const slug = data[i].slug
+        const title = data[i].title ? data[i].title : data[i].slug
+        ul.append(listItemHtml(slug, title))
+      }
+      if (data.length > 0) {
+        $item.append(`
           <ul><button class="empty">Empty Recyler</button></ul>
-        """
-
-
-
-bind = ($item, item) ->
-  q = queue( (task, cb) ->
-    myInit = {
-      method: 'DELETE'
-      cache: 'no-cache'
-      mode: 'same-origin'
-      credentials: 'include'
+        `)
+      }
     }
-    fetch task.slug, myInit
-    .then (response) ->
-      if response.ok
-        recyclerList = $(task.item).parent().parent()
-        $(task.item).parent().remove()
+  })
+}
 
-        if $(recyclerList).children().length is 0
-          # no pages left in recycler so show message for empty recycler
-          $item.empty()
-          $item.append """
+const deleteItem = (slug, item) => {
+  const myInit = {
+    method: 'DELETE',
+    cache: 'no-cache',
+    mode: 'same-origin',
+    credentials: 'include',
+  }
+
+  return fetch(slug, myInit)
+    .then(response => {
+      if (response.ok) {
+        const recyclerList = $(item).parent().parent()
+        $(item).parent().remove()
+
+        if (recyclerList.children().length === 0) {
+          recyclerList.empty()
+          recyclerList.append(`
             <p style="background-color:#eee;padding:15px;">
               The recycler is empty
             </p>
-          """
-    .then cb()
-  , 2) # just 2 processes working on the queue
+            `)
+        }
+      }
+      return response
+    })
+    .catch(error => {
+      console.log('recycler error: ', error)
+      throw error
+    })
+}
 
-  $item.on 'click', '.delete', ->
-    slug = '/recycler/' + $(this).siblings('a.internal').data('pageName') + '.json'
-    q.push {slug: slug
-    item: this}, (err) ->
-      if err
-        console.log "recycler error: ", err
+const bind = ($item, item) => {
+  // Handle single delete
+  $item.on('click', '.delete', function () {
+    const slug = '/recycler/' + $(this).siblings('a.internal').data('pageName') + '.json'
+    deleteItem(slug, this).catch(error => console.log('recycler error: ', error))
+  })
 
-  $item.on 'click', '.empty', ->
-    recycleElements = $(this).parent().parent().children().first()
-    $(recycleElements).children().each( () ->
-      slug = '/recycler/' + $(this).children('a.internal').data('pageName') + '.json'
-      delButton = $(this).children('delete')
-      q.push {slug: slug
-      item: delButton}, (err) ->
-        if err
-          console.log 'recycler error: ', err
-    )
+  // Handle empty all
+  $item.on('click', '.empty', function () {
+    const recycleElements = $(this).parent().parent().children().first()
 
+    const deletePromises = Array.from($(recycleElements).children()).map(child => {
+      const slug = '/recycler/' + $(child).children('a.internal').data('pageName') + '.json'
+      const delButton = $(child).children('.delete')
+      return deleteItem(slug, delButton)
+    })
 
+    Promise.allSettled(deletePromises).catch(error => console.log('recycler error: ', error))
+  })
+}
 
-
-
-window.plugins.recycler = {emit, bind} if window?
-module.exports = {escape} if module?
+if (window) {
+  window.plugins.recycler = { emit, bind }
+}
