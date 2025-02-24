@@ -1,6 +1,5 @@
-/*/*.js
-/*/*.map
+client/recycler.*
+coverage
 node_modules
 npm-debug.log
-
-/status/*
+meta-client.json
